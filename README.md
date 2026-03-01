@@ -81,7 +81,7 @@ slack-cli channel new                Create a channel
 slack-cli channel invite             Invite users to a channel
 
 slack-cli message get <target>       Fetch a single message
-slack-cli message list <target>      List channel messages or thread
+slack-cli message list <target>      List channel messages, thread, or activity
 slack-cli message send <target>      Send a message
 slack-cli message edit <target>      Edit a message
 slack-cli message delete <target>    Delete a message
