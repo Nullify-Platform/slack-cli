@@ -64,6 +64,7 @@ var messageListCmd = &cobra.Command{
 		latest, _ := cmd.Flags().GetString("latest")
 		maxBody, _ := cmd.Flags().GetInt("max-body-chars")
 		includeReactions, _ := cmd.Flags().GetBool("include-reactions")
+		includeThreads, _ := cmd.Flags().GetBool("include-threads")
 
 		target := urlparse.ParseMsgTarget(args[0])
 		client, err := getClient()
@@ -99,6 +100,29 @@ var messageListCmd = &cobra.Command{
 				"thread_ts":  effectiveThreadTS,
 				"messages":   messages,
 			})
+		}
+
+		// Activity mode: find new top-level messages AND new thread replies
+		if includeThreads && oldest != "" {
+			newMessages, threadUpdates, err := slack.FetchChannelActivity(cmd.Context(), client, slack.ChannelHistoryOpts{
+				ChannelID:        channelID,
+				Limit:            limit,
+				Oldest:           oldest,
+				Latest:           latest,
+				IncludeReactions: includeReactions,
+				MaxBodyChars:     maxBody,
+			})
+			if err != nil {
+				return err
+			}
+			result := map[string]interface{}{
+				"channel_id": channelID,
+				"messages":   newMessages,
+			}
+			if len(threadUpdates) > 0 {
+				result["thread_updates"] = threadUpdates
+			}
+			return output.PrintJSON(result)
 		}
 
 		// Channel history mode
@@ -320,6 +344,7 @@ func init() {
 	messageListCmd.Flags().String("latest", "", "Only messages before this ts")
 	messageListCmd.Flags().Int("max-body-chars", 8000, "Max content characters (-1 for unlimited)")
 	messageListCmd.Flags().Bool("include-reactions", false, "Include reactions")
+	messageListCmd.Flags().Bool("include-threads", false, "Also fetch new thread replies (use with --oldest)")
 
 	// message send flags
 	messageSendCmd.Flags().String("thread-ts", "", "Thread root ts to reply into")

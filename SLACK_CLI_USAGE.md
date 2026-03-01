@@ -38,6 +38,7 @@ Messages are returned in chronological order (oldest first). Each message includ
 - `ts` — unique timestamp identifier
 - `thread_ts` — present if the message is part of a thread
 - `reply_count` — number of thread replies (only on thread root messages, omitted when 0)
+- `latest_reply` — timestamp of the most recent reply (only on thread root messages)
 - `author.user_id` — who sent it
 - `content` — message text
 - `files` — attached file metadata (if any)
@@ -60,7 +61,23 @@ slack-cli message list '#channel-name' --oldest 1772200000.000000 --limit 50
 
 To compute a timestamp for "N seconds ago", subtract from the current unix epoch.
 
-### 5. Get a single message
+### 5. Check for all new activity (including threads)
+
+`--oldest` alone only returns new **top-level** messages. To also catch new replies in existing threads, add `--include-threads`:
+
+```
+slack-cli message list '#channel-name' --oldest 1772200000.000000 --limit 50 --include-threads
+```
+
+This scans the last `--limit` messages and fetches new thread replies for any thread with activity after `--oldest`. Output includes:
+- `messages` — new top-level messages (same as without the flag)
+- `thread_updates` — threads with new replies, each containing:
+  - `thread_ts` — the thread root timestamp
+  - `parent_author` — who started the thread
+  - `parent_preview` — truncated text of the thread root message
+  - `new_replies` — only the replies posted after `--oldest`
+
+### 6. Get a single message
 
 By Slack URL:
 
@@ -74,7 +91,7 @@ By channel + timestamp:
 slack-cli message get '#channel-name' --ts 1772065778.676219
 ```
 
-### 6. Resolve user IDs to names
+### 7. Resolve user IDs to names
 
 Messages contain user IDs (e.g. `U06JYRAKH9A`), not display names. Resolve them:
 
@@ -90,7 +107,7 @@ To list all workspace users:
 slack-cli user list --limit 200
 ```
 
-### 7. Search messages
+### 8. Search messages
 
 ```
 slack-cli search messages 'keyword' --limit 20
@@ -102,7 +119,7 @@ Filter by channel, user, or date range:
 slack-cli search messages 'deploy' --channel '#engineering' --user '@jules' --after 2026-02-01 --before 2026-02-28
 ```
 
-### 8. Search files
+### 9. Search files
 
 ```
 slack-cli search files 'report' --limit 10
@@ -167,9 +184,10 @@ slack-cli channel invite --channel '#channel-name' --users 'U01234,U56789'
 1. `slack-cli channel list` — discover available channels
 2. `slack-cli message list '#channel' --limit 25` — read recent activity
 3. For any message with `reply_count > 0` — `slack-cli message list '#channel' --thread-ts <ts>` to read the thread
-4. `slack-cli user get <user_id>` — resolve user IDs as needed
-5. `slack-cli message send '#channel' 'response'` — reply to the channel
-6. `slack-cli message send '#channel' 'response' --thread-ts <ts>` — reply in a specific thread
+4. To poll for new activity since a known timestamp — `slack-cli message list '#channel' --oldest <ts> --include-threads` to catch both new messages and new thread replies
+5. `slack-cli user get <user_id>` — resolve user IDs as needed
+6. `slack-cli message send '#channel' 'response'` — reply to the channel
+7. `slack-cli message send '#channel' 'response' --thread-ts <ts>` — reply in a specific thread
 
 ## Notes
 

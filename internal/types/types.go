@@ -47,14 +47,23 @@ type APIResponse map[string]interface{}
 
 // CompactMessage is the token-efficient output format for messages.
 type CompactMessage struct {
-	ChannelID  string           `json:"channel_id,omitempty"`
-	TS         string           `json:"ts"`
-	ThreadTS   string           `json:"thread_ts,omitempty"`
-	ReplyCount int              `json:"reply_count,omitempty"`
-	Author     *MessageAuthor   `json:"author,omitempty"`
-	Content    string           `json:"content,omitempty"`
-	Files      []CompactFile    `json:"files,omitempty"`
-	Reactions  []CompactReaction `json:"reactions,omitempty"`
+	ChannelID   string           `json:"channel_id,omitempty"`
+	TS          string           `json:"ts"`
+	ThreadTS    string           `json:"thread_ts,omitempty"`
+	ReplyCount  int              `json:"reply_count,omitempty"`
+	LatestReply string           `json:"latest_reply,omitempty"`
+	Author      *MessageAuthor   `json:"author,omitempty"`
+	Content     string           `json:"content,omitempty"`
+	Files       []CompactFile    `json:"files,omitempty"`
+	Reactions   []CompactReaction `json:"reactions,omitempty"`
+}
+
+// ThreadUpdate represents new replies in a thread since a given time.
+type ThreadUpdate struct {
+	ThreadTS      string           `json:"thread_ts"`
+	ParentAuthor  *MessageAuthor   `json:"parent_author,omitempty"`
+	ParentPreview string           `json:"parent_preview,omitempty"`
+	NewReplies    []CompactMessage `json:"new_replies"`
 }
 
 // MessageAuthor identifies who sent a message.

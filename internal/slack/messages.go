@@ -173,6 +173,137 @@ func FetchThread(ctx context.Context, client *api.Client, channelID, threadTS st
 	return messages, nil
 }
 
+// FetchChannelActivity returns new top-level messages AND new thread replies
+// since the given oldest timestamp. It scans recent channel history to find
+// threads with latest_reply > oldest, then fetches those thread replies.
+func FetchChannelActivity(ctx context.Context, client *api.Client, opts ChannelHistoryOpts) ([]types.CompactMessage, []types.ThreadUpdate, error) {
+	if opts.Limit <= 0 {
+		opts.Limit = 50
+	}
+	if opts.Limit > 200 {
+		opts.Limit = 200
+	}
+	if opts.MaxBodyChars == 0 {
+		opts.MaxBodyChars = 8000
+	}
+	oldest := opts.Oldest
+
+	// Step 1: Fetch channel history WITHOUT oldest filter to get recent thread parents.
+	scanParams := map[string]string{
+		"channel": opts.ChannelID,
+		"limit":   strconv.Itoa(opts.Limit),
+	}
+	if opts.Latest != "" {
+		scanParams["latest"] = opts.Latest
+	}
+
+	resp, err := client.Call(ctx, "conversations.history", scanParams)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	rawMsgs := api.GetSlice(resp["messages"])
+	var newMessages []types.CompactMessage
+	var threadUpdates []types.ThreadUpdate
+
+	for _, m := range rawMsgs {
+		raw, ok := m.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		ts := api.GetStringFromMap(raw, "ts")
+		latestReply := api.GetStringFromMap(raw, "latest_reply")
+		replyCount := api.GetIntFromMap(raw, "reply_count")
+
+		// New top-level message
+		if oldest == "" || ts > oldest {
+			newMessages = append(newMessages, *parseRawMessage(opts.ChannelID, raw, opts.MaxBodyChars, opts.IncludeReactions))
+		}
+
+		// Thread with new replies (parent may be old, but replies are new)
+		if replyCount > 0 && latestReply != "" && oldest != "" && latestReply > oldest {
+			// Fetch only new replies using oldest parameter
+			threadReplies, err := fetchThreadRepliesSince(ctx, client, opts.ChannelID, ts, oldest, opts.IncludeReactions, opts.MaxBodyChars)
+			if err != nil {
+				continue
+			}
+			if len(threadReplies) > 0 {
+				parentMsg := parseRawMessage(opts.ChannelID, raw, 200, false) // short preview
+				update := types.ThreadUpdate{
+					ThreadTS:     ts,
+					ParentAuthor: parentMsg.Author,
+					NewReplies:   threadReplies,
+				}
+				if parentMsg.Content != "" {
+					preview := parentMsg.Content
+					if len(preview) > 200 {
+						preview = preview[:200] + "..."
+					}
+					update.ParentPreview = preview
+				}
+				threadUpdates = append(threadUpdates, update)
+			}
+		}
+	}
+
+	// Sort new messages chronologically
+	sort.Slice(newMessages, func(i, j int) bool {
+		return newMessages[i].TS < newMessages[j].TS
+	})
+
+	return newMessages, threadUpdates, nil
+}
+
+// fetchThreadRepliesSince fetches thread replies newer than oldest timestamp.
+func fetchThreadRepliesSince(ctx context.Context, client *api.Client, channelID, threadTS, oldest string, includeReactions bool, maxBodyChars int) ([]types.CompactMessage, error) {
+	var replies []types.CompactMessage
+	cursor := ""
+
+	for {
+		params := map[string]string{
+			"channel": channelID,
+			"ts":      threadTS,
+			"oldest":  oldest,
+			"limit":   "200",
+		}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+
+		resp, err := client.Call(ctx, "conversations.replies", params)
+		if err != nil {
+			return nil, err
+		}
+
+		rawMsgs := api.GetSlice(resp["messages"])
+		for _, m := range rawMsgs {
+			if raw, ok := m.(map[string]interface{}); ok {
+				msgTS := api.GetStringFromMap(raw, "ts")
+				// Skip the thread parent itself, only include actual replies
+				if msgTS == threadTS {
+					continue
+				}
+				// Only include replies newer than oldest
+				if msgTS > oldest {
+					replies = append(replies, *parseRawMessage(channelID, raw, maxBodyChars, includeReactions))
+				}
+			}
+		}
+
+		cursor = api.ExtractCursor(resp)
+		if cursor == "" {
+			break
+		}
+	}
+
+	sort.Slice(replies, func(i, j int) bool {
+		return replies[i].TS < replies[j].TS
+	})
+
+	return replies, nil
+}
+
 // SendMessage posts a message to a channel, optionally in a thread.
 func SendMessage(ctx context.Context, client *api.Client, channelID, text, threadTS string) (*types.CompactMessage, error) {
 	params := map[string]string{
@@ -249,11 +380,12 @@ func parseRawMessage(channelID string, raw map[string]interface{}, maxBodyChars 
 	}
 
 	msg := &types.CompactMessage{
-		ChannelID:  channelID,
-		TS:         ts,
-		ThreadTS:   threadTS,
-		ReplyCount: api.GetIntFromMap(raw, "reply_count"),
-		Content:    content,
+		ChannelID:   channelID,
+		TS:          ts,
+		ThreadTS:    threadTS,
+		ReplyCount:  api.GetIntFromMap(raw, "reply_count"),
+		LatestReply: api.GetStringFromMap(raw, "latest_reply"),
+		Content:     content,
 	}
 
 	if user != "" || botID != "" {
