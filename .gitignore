@@ -1,0 +1,6 @@
+# Binary
+slack-cli
+slack-cli-*
+
+# OS
+.DS_Store
