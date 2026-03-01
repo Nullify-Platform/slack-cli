@@ -1,0 +1,13 @@
+name: CI Require Labels
+on:
+  pull_request:
+    types: [opened, labeled, unlabeled, synchronize]
+run-name: CI Require Labels by @${{ github.actor }} ${{ github.sha }}
+permissions:
+  pull-requests: write
+jobs:
+  require-labels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require Labels
+        uses: nullify-platform/github-actions/actions/require-labels@main
