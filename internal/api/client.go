@@ -132,6 +132,53 @@ func (c *Client) Call(ctx context.Context, method string, params map[string]stri
 	return nil, fmt.Errorf("max retries exceeded for %s", method)
 }
 
+// UploadToURL POSTs raw file content to a pre-signed Slack upload URL.
+// The upload URL itself is authorization — no Slack auth headers are sent.
+func (c *Client) UploadToURL(ctx context.Context, uploadURL string, r io.Reader, size int64, contentType string) error {
+	req, err := http.NewRequestWithContext(ctx, "POST", uploadURL, r)
+	if err != nil {
+		return fmt.Errorf("building upload request: %w", err)
+	}
+	req.ContentLength = size
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("uploading file: %w", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("upload failed with HTTP %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+// Download performs an authenticated GET on a private Slack URL (e.g. url_private)
+// and returns the response body. The caller must close it.
+func (c *Client) Download(ctx context.Context, privateURL string) (io.ReadCloser, string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", privateURL, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("building download request: %w", err)
+	}
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Authorization", "Bearer "+c.auth.Token)
+	if c.auth.Mode == types.AuthBrowser {
+		req.Header.Set("Cookie", "d="+url.QueryEscape(c.auth.Cookie))
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("downloading file: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, "", fmt.Errorf("download failed with HTTP %d", resp.StatusCode)
+	}
+	return resp.Body, resp.Header.Get("Content-Type"), nil
+}
+
 func parseRetryAfter(header string, defaultSec int) int {
 	if header == "" {
 		return defaultSec
