@@ -82,6 +82,20 @@ type CompactFile struct {
 	Size      int    `json:"size,omitempty"`
 }
 
+// FileInfo is the token-efficient file metadata from files.info.
+type FileInfo struct {
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Mimetype    string `json:"mimetype,omitempty"`
+	Filetype    string `json:"filetype,omitempty"`
+	Size        int    `json:"size,omitempty"`
+	URLPrivate  string `json:"url_private,omitempty"`
+	Permalink   string `json:"permalink,omitempty"`
+	Created     int64  `json:"created,omitempty"`
+	User        string `json:"user,omitempty"`
+}
+
 // CompactReaction is the token-efficient reaction format.
 type CompactReaction struct {
 	Name  string   `json:"name"`
