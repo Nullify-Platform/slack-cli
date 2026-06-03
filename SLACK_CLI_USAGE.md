@@ -133,6 +133,31 @@ slack-cli search files 'report' --limit 10
 slack-cli message send '#channel-name' 'Hello from the agent'
 ```
 
+> ⚠️ **Do not put a formatted or multi-line body in a double-quoted shell
+> argument.** The shell interprets backticks, `$`, and quotes *before*
+> `slack-cli` ever sees them, so Slack mrkdwn like `` `code` `` gets executed as
+> a command and silently dropped. For anything beyond a trivial single-line
+> string, pass the body via `--file` or stdin instead — then the shell never
+> touches it.
+
+Read the body from a file:
+
+```
+slack-cli message send '#channel-name' --file alert.txt
+```
+
+Or pipe it via stdin (`-` as the body, ideally with a **quoted** heredoc so
+nothing is interpolated):
+
+```
+slack-cli message send '#channel-name' - <<'EOF'
+:rotating_light: *Alert* with `code`, $vars, and 'quotes' all kept literal
+EOF
+```
+
+The body is resolved in this order: `--file` (`-` means stdin), then the
+positional `text` argument, then piped stdin when no text argument is given.
+
 ### Reply in a thread
 
 ```
@@ -150,6 +175,9 @@ slack-cli message send 'https://myteam.slack.com/archives/C01234/p17720657786762
 ```
 slack-cli message edit '#channel-name' 'Updated text' --ts 1772065778.676219
 ```
+
+The new body also accepts `--file <path>` or stdin (same precedence as `send`),
+which you should prefer for any formatted or multi-line content.
 
 ### Delete a message
 
