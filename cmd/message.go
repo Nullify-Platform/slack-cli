@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/nullify/slack-cli/internal/api"
 	"github.com/nullify/slack-cli/internal/output"
@@ -146,11 +148,30 @@ var messageListCmd = &cobra.Command{
 }
 
 var messageSendCmd = &cobra.Command{
-	Use:   "send <target> <text>",
+	Use:   "send <target> [text]",
 	Short: "Send a message (optionally into a thread)",
-	Args:  cobra.ExactArgs(2),
+	Long: `Send a message to a channel, user, or thread.
+
+The message body can be supplied three ways (checked in this order):
+  - --file <path>  read the body from a file ('-' means stdin)
+  - <text>         a positional argument
+  - stdin          piped input when no text argument is given
+
+Prefer --file or stdin for multi-line or formatted messages: passing the body
+as a shell argument means the shell interprets backticks, $, and quotes, which
+silently corrupts Slack mrkdwn. A quoted heredoc avoids this entirely:
+
+  slack-cli message send C01234ABC - <<'EOF'
+  :rotating_light: *Alert* with ` + "`code`" + ` and 'quotes' kept literal
+  EOF`,
+	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		threadTS, _ := cmd.Flags().GetString("thread-ts")
+
+		text, err := resolveMessageText(cmd, args, 1)
+		if err != nil {
+			return err
+		}
 
 		target := urlparse.ParseMsgTarget(args[0])
 		client, err := getClient()
@@ -172,7 +193,7 @@ var messageSendCmd = &cobra.Command{
 			}
 		}
 
-		msg, err := slack.SendMessage(cmd.Context(), client, channelID, args[1], threadTS)
+		msg, err := slack.SendMessage(cmd.Context(), client, channelID, text, threadTS)
 		if err != nil {
 			return err
 		}
@@ -182,11 +203,20 @@ var messageSendCmd = &cobra.Command{
 }
 
 var messageEditCmd = &cobra.Command{
-	Use:   "edit <target> <text>",
+	Use:   "edit <target> [text]",
 	Short: "Edit an existing message",
-	Args:  cobra.ExactArgs(2),
+	Long: `Edit an existing message. The new body can be supplied via --file <path>
+('-' means stdin), a positional argument, or piped stdin (checked in that
+order). Prefer --file or stdin for formatted messages so the shell does not
+interpret backticks, $, or quotes in the body.`,
+	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ts, _ := cmd.Flags().GetString("ts")
+
+		text, err := resolveMessageText(cmd, args, 1)
+		if err != nil {
+			return err
+		}
 
 		target := urlparse.ParseMsgTarget(args[0])
 		client, err := getClient()
@@ -199,7 +229,7 @@ var messageEditCmd = &cobra.Command{
 			return err
 		}
 
-		if err := slack.EditMessage(cmd.Context(), client, channelID, messageTS, args[1]); err != nil {
+		if err := slack.EditMessage(cmd.Context(), client, channelID, messageTS, text); err != nil {
 			return err
 		}
 
@@ -290,6 +320,54 @@ var messageReactRemoveCmd = &cobra.Command{
 	},
 }
 
+// resolveMessageText resolves a message body from, in order of precedence:
+// the --file flag ('-' means stdin), the positional text argument at textArg,
+// or piped stdin when neither is given. This lets callers avoid passing
+// formatted message bodies as shell arguments, where backticks, $, and quotes
+// would otherwise be interpreted by the shell and corrupt the message.
+func resolveMessageText(cmd *cobra.Command, args []string, textArg int) (string, error) {
+	file, _ := cmd.Flags().GetString("file")
+
+	switch {
+	case file == "-":
+		return readAllStdin()
+	case file != "":
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return "", fmt.Errorf("reading message body from %s: %w", file, err)
+		}
+		return string(b), nil
+	case len(args) > textArg:
+		return args[textArg], nil
+	case stdinIsPiped():
+		return readAllStdin()
+	default:
+		return "", fmt.Errorf("no message body: provide a text argument, --file, or pipe via stdin")
+	}
+}
+
+// stdinIsPiped reports whether stdin is a pipe or file rather than an
+// interactive terminal, so we only block on a read when input is actually
+// being fed in.
+func stdinIsPiped() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice == 0
+}
+
+func readAllStdin() (string, error) {
+	b, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", fmt.Errorf("reading message body from stdin: %w", err)
+	}
+	if len(b) == 0 {
+		return "", fmt.Errorf("no message body: provide a text argument, --file, or pipe via stdin")
+	}
+	return string(b), nil
+}
+
 // resolveTargetToChannel resolves any target to a channel ID.
 func resolveTargetToChannel(cmd *cobra.Command, client *api.Client, target *types.MsgTarget) (string, error) {
 	ctx := cmd.Context()
@@ -348,9 +426,11 @@ func init() {
 
 	// message send flags
 	messageSendCmd.Flags().String("thread-ts", "", "Thread root ts to reply into")
+	messageSendCmd.Flags().String("file", "", "Read message body from a file ('-' for stdin) instead of the text argument")
 
 	// message edit flags
 	messageEditCmd.Flags().String("ts", "", "Message ts (required with channel target)")
+	messageEditCmd.Flags().String("file", "", "Read new message body from a file ('-' for stdin) instead of the text argument")
 
 	// message delete flags
 	messageDeleteCmd.Flags().String("ts", "", "Message ts (required with channel target)")
