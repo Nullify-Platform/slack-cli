@@ -397,6 +397,7 @@ func parseRawMessage(channelID string, raw map[string]interface{}, maxBodyChars 
 		for _, f := range files {
 			if fm, ok := f.(map[string]interface{}); ok {
 				msg.Files = append(msg.Files, types.CompactFile{
+					ID:        api.GetStringFromMap(fm, "id"),
 					Name:      api.GetStringFromMap(fm, "name"),
 					Title:     api.GetStringFromMap(fm, "title"),
 					Mimetype:  api.GetStringFromMap(fm, "mimetype"),

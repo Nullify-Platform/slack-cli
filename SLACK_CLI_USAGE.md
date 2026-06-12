@@ -41,7 +41,7 @@ Messages are returned in chronological order (oldest first). Each message includ
 - `latest_reply` — timestamp of the most recent reply (only on thread root messages)
 - `author.user_id` — who sent it
 - `content` — message text
-- `files` — attached file metadata (if any)
+- `files` — attached file metadata (if any), each with `id`, `name`, `mimetype`, `size`, and `permalink` (see §10 to download)
 
 ### 3. Read a thread
 
@@ -125,6 +125,20 @@ slack-cli search messages 'deploy' --channel '#engineering' --user '@jules' --af
 slack-cli search files 'report' --limit 10
 ```
 
+### 10. Inspect and download file attachments
+
+Each entry in a message's `files` array has an `id` (e.g. `F0B9ZKGUQ85`). Fetch its metadata:
+
+```
+slack-cli file info F0B9ZKGUQ85
+```
+
+Download the bytes to a local path (omit `--output` to stream to stdout; metadata goes to stderr):
+
+```
+slack-cli file download F0B9ZKGUQ85 --output /tmp/attachment.png
+```
+
 ## Sending and Modifying Messages
 
 ### Send a message to a channel
@@ -192,6 +206,15 @@ slack-cli message react add '#channel-name' thumbsup --ts 1772065778.676219
 slack-cli message react remove '#channel-name' thumbsup --ts 1772065778.676219
 ```
 
+### Upload a file
+
+Upload a local file to a channel or thread:
+
+```
+slack-cli file upload '#channel-name' /tmp/result.png --message 'Here is the output'
+slack-cli file upload '#channel-name' /tmp/result.png --thread-ts 1772065778.676219
+```
+
 ## Channel Management
 
 ### Create a channel
@@ -214,8 +237,9 @@ slack-cli channel invite --channel '#channel-name' --users 'U01234,U56789'
 3. For any message with `reply_count > 0` — `slack-cli message list '#channel' --thread-ts <ts>` to read the thread
 4. To poll for new activity since a known timestamp — `slack-cli message list '#channel' --oldest <ts> --include-threads` to catch both new messages and new thread replies
 5. `slack-cli user get <user_id>` — resolve user IDs as needed
-6. `slack-cli message send '#channel' 'response'` — reply to the channel
-7. `slack-cli message send '#channel' 'response' --thread-ts <ts>` — reply in a specific thread
+6. For a message with a `files` attachment — `slack-cli file download <file_id> --output <path>` to fetch it
+7. `slack-cli message send '#channel' 'response'` — reply to the channel
+8. `slack-cli message send '#channel' 'response' --thread-ts <ts>` — reply in a specific thread
 
 ## Notes
 
