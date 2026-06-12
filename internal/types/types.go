@@ -74,6 +74,7 @@ type MessageAuthor struct {
 
 // CompactFile is the token-efficient file metadata.
 type CompactFile struct {
+	ID        string `json:"id,omitempty"`
 	Mimetype  string `json:"mimetype,omitempty"`
 	Mode      string `json:"mode,omitempty"`
 	Name      string `json:"name,omitempty"`
