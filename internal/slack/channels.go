@@ -27,7 +27,10 @@ type ListChannelsOpts struct {
 type ChannelListResult struct {
 	Channels   []types.CompactChannel `json:"channels"`
 	NextCursor string                 `json:"next_cursor,omitempty"`
+	Truncated  bool                   `json:"truncated,omitempty"`
 }
+
+var maxAutoPaginatePages = 50
 
 // ListChannels lists conversations.
 // Uses users.conversations (default) or conversations.list (when All=true).
@@ -47,35 +50,49 @@ func ListChannels(ctx context.Context, client *api.Client, opts ListChannelsOpts
 		method = "conversations.list"
 	}
 
-	params := map[string]string{
-		"types":            opts.Types,
-		"limit":            strconv.Itoa(opts.Limit),
-		"exclude_archived": "true",
-	}
-	if !opts.ExcludeArchived {
-		params["exclude_archived"] = "false"
-	}
-	if opts.Cursor != "" {
-		params["cursor"] = opts.Cursor
-	}
-	if opts.UserID != "" && !opts.All {
-		params["user"] = opts.UserID
-	}
+	autoPaginate := opts.All && opts.Cursor == ""
 
-	resp, err := client.Call(ctx, method, params)
-	if err != nil {
-		return nil, err
-	}
-
-	rawChannels := api.GetSlice(resp["channels"])
 	result := &ChannelListResult{}
-	for _, ch := range rawChannels {
-		if m, ok := ch.(map[string]interface{}); ok {
-			result.Channels = append(result.Channels, parseRawChannel(m))
+	cursor := opts.Cursor
+	for page := 0; ; page++ {
+		params := map[string]string{
+			"types":            opts.Types,
+			"limit":            strconv.Itoa(opts.Limit),
+			"exclude_archived": "true",
+		}
+		if !opts.ExcludeArchived {
+			params["exclude_archived"] = "false"
+		}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		if opts.UserID != "" && !opts.All {
+			params["user"] = opts.UserID
+		}
+
+		resp, err := client.Call(ctx, method, params)
+		if err != nil {
+			return nil, err
+		}
+
+		rawChannels := api.GetSlice(resp["channels"])
+		for _, ch := range rawChannels {
+			if m, ok := ch.(map[string]interface{}); ok {
+				result.Channels = append(result.Channels, parseRawChannel(m))
+			}
+		}
+
+		cursor = api.ExtractCursor(resp)
+		if !autoPaginate || cursor == "" {
+			break
+		}
+		if page+1 >= maxAutoPaginatePages {
+			result.Truncated = true
+			break
 		}
 	}
 
-	result.NextCursor = api.ExtractCursor(resp)
+	result.NextCursor = cursor
 	return result, nil
 }
 
