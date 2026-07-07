@@ -50,7 +50,7 @@ func ListChannels(ctx context.Context, client *api.Client, opts ListChannelsOpts
 		method = "conversations.list"
 	}
 
-	autoPaginate := opts.All && opts.Cursor == ""
+	autoPaginate := opts.Cursor == ""
 
 	result := &ChannelListResult{}
 	cursor := opts.Cursor

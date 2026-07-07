@@ -85,6 +85,26 @@ func TestListChannels_AllAutoPaginatesAcrossShardedPages(t *testing.T) {
 	}
 }
 
+func TestListChannels_MemberOnlyAlsoAutoPaginates(t *testing.T) {
+	srv := fakeConversationsList(t, [][]string{
+		{"general"},
+		{"nul-team", "internal-acme"},
+	})
+	defer srv.Close()
+
+	result, err := ListChannels(context.Background(), testClient(srv.URL), ListChannelsOpts{})
+	if err != nil {
+		t.Fatalf("ListChannels: %v", err)
+	}
+
+	if len(result.Channels) != 3 {
+		t.Fatalf("expected 3 channels merged across pages, got %d: %+v", len(result.Channels), result.Channels)
+	}
+	if result.NextCursor != "" {
+		t.Fatalf("expected no next_cursor after exhausting pages, got %q", result.NextCursor)
+	}
+}
+
 func TestListChannels_ExplicitCursorFetchesSinglePage(t *testing.T) {
 	srv := fakeConversationsList(t, [][]string{
 		{"general"},
@@ -93,6 +113,23 @@ func TestListChannels_ExplicitCursorFetchesSinglePage(t *testing.T) {
 	defer srv.Close()
 
 	result, err := ListChannels(context.Background(), testClient(srv.URL), ListChannelsOpts{All: true, Cursor: "some-cursor"})
+	if err != nil {
+		t.Fatalf("ListChannels: %v", err)
+	}
+
+	if len(result.Channels) != 1 {
+		t.Fatalf("expected exactly 1 page of channels with explicit cursor, got %d", len(result.Channels))
+	}
+}
+
+func TestListChannels_ExplicitCursorFetchesSinglePageWithoutAll(t *testing.T) {
+	srv := fakeConversationsList(t, [][]string{
+		{"general"},
+		{"internal-acme"},
+	})
+	defer srv.Close()
+
+	result, err := ListChannels(context.Background(), testClient(srv.URL), ListChannelsOpts{Cursor: "some-cursor"})
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
 	}

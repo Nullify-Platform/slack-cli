@@ -124,9 +124,9 @@ func init() {
 	channelCmd.AddCommand(channelListCmd, channelNewCmd, channelInviteCmd)
 
 	channelListCmd.Flags().String("user", "", "User ID, @handle, or email")
-	channelListCmd.Flags().Bool("all", false, "List all workspace conversations (auto-paginates unless --cursor is set)")
+	channelListCmd.Flags().Bool("all", false, "List all workspace conversations instead of just the ones the bot is a member of")
 	channelListCmd.Flags().Int("limit", 100, "Conversations per page fetched from Slack")
-	channelListCmd.Flags().String("cursor", "", "Resume from this pagination cursor instead of auto-paginating")
+	channelListCmd.Flags().String("cursor", "", "Resume from this pagination cursor instead of auto-paginating (applies with or without --all)")
 
 	channelNewCmd.Flags().String("name", "", "Channel name")
 	_ = channelNewCmd.MarkFlagRequired("name")
