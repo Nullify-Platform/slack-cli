@@ -321,10 +321,11 @@ var messageReactRemoveCmd = &cobra.Command{
 }
 
 // resolveMessageText resolves a message body from, in order of precedence:
-// the --file flag ('-' means stdin), the positional text argument at textArg,
-// or piped stdin when neither is given. This lets callers avoid passing
-// formatted message bodies as shell arguments, where backticks, $, and quotes
-// would otherwise be interpreted by the shell and corrupt the message.
+// the --file flag ('-' means stdin), the positional text argument at textArg
+// ('-' also means stdin there), or piped stdin when neither is given. This
+// lets callers avoid passing formatted message bodies as shell arguments,
+// where backticks, $, and quotes would otherwise be interpreted by the shell
+// and corrupt the message.
 func resolveMessageText(cmd *cobra.Command, args []string, textArg int) (string, error) {
 	file, _ := cmd.Flags().GetString("file")
 
@@ -337,6 +338,8 @@ func resolveMessageText(cmd *cobra.Command, args []string, textArg int) (string,
 			return "", fmt.Errorf("reading message body from %s: %w", file, err)
 		}
 		return string(b), nil
+	case len(args) > textArg && args[textArg] == "-":
+		return readAllStdin()
 	case len(args) > textArg:
 		return args[textArg], nil
 	case stdinIsPiped():
