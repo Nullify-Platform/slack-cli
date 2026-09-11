@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/nullify/slack-cli/internal/api"
 	"github.com/nullify/slack-cli/internal/types"
@@ -375,6 +376,24 @@ func parseRawMessage(channelID string, raw map[string]interface{}, maxBodyChars 
 	botID := api.GetStringFromMap(raw, "bot_id")
 
 	content := text
+
+	// Many bot integrations (Grafana alerts, legacy webhook posters, etc.) never
+	// populate the plain "text" field and instead put the entire message body in
+	// legacy "attachments" or top-level Block Kit "blocks". Without this fallback
+	// those messages come back with empty content even though they carry a full
+	// alert/body — fall back to extracting human-readable text from whichever
+	// structure actually holds it.
+	if content == "" {
+		if attachments := api.GetSliceFromMap(raw, "attachments"); len(attachments) > 0 {
+			content = extractAttachmentsText(attachments)
+		}
+	}
+	if content == "" {
+		if blocks := api.GetSliceFromMap(raw, "blocks"); len(blocks) > 0 {
+			content = extractBlockText(blocks)
+		}
+	}
+
 	if maxBodyChars >= 0 && len(content) > maxBodyChars {
 		content = content[:maxBodyChars] + "\n..."
 	}
@@ -438,6 +457,102 @@ func parseRawMessage(channelID string, raw map[string]interface{}, maxBodyChars 
 	}
 
 	return msg
+}
+
+// extractAttachmentsText extracts human-readable text from legacy Slack
+// "attachments" (title/pretext/text/fallback/fields/footer, plus any nested
+// Block Kit content some integrations attach instead of the legacy fields).
+func extractAttachmentsText(attachments []interface{}) string {
+	var parts []string
+	for _, a := range attachments {
+		am, ok := a.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		if t := api.GetStringFromMap(am, "title"); t != "" {
+			parts = append(parts, t)
+		}
+		if t := api.GetStringFromMap(am, "pretext"); t != "" {
+			parts = append(parts, t)
+		}
+		if t := api.GetStringFromMap(am, "text"); t != "" {
+			parts = append(parts, t)
+		} else if t := api.GetStringFromMap(am, "fallback"); t != "" {
+			parts = append(parts, t)
+		}
+
+		for _, f := range api.GetSliceFromMap(am, "fields") {
+			fm, ok := f.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			title := api.GetStringFromMap(fm, "title")
+			value := api.GetStringFromMap(fm, "value")
+			switch {
+			case title != "" && value != "":
+				parts = append(parts, fmt.Sprintf("%s: %s", title, value))
+			case value != "":
+				parts = append(parts, value)
+			}
+		}
+
+		// Some integrations attach full Block Kit content instead of (or as
+		// well as) the legacy fields above.
+		if blocks := api.GetSliceFromMap(am, "blocks"); len(blocks) > 0 {
+			if t := extractBlockText(blocks); t != "" {
+				parts = append(parts, t)
+			}
+		}
+
+		if t := api.GetStringFromMap(am, "footer"); t != "" {
+			parts = append(parts, t)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+// extractBlockText recursively extracts human-readable text from a slice of
+// Block Kit blocks (top-level "blocks", or "blocks" nested inside an
+// attachment).
+func extractBlockText(blocks []interface{}) string {
+	var parts []string
+	for _, b := range blocks {
+		bm, ok := b.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		if textObj := api.GetMapFromMap(bm, "text"); textObj != nil {
+			if t := api.GetStringFromMap(textObj, "text"); t != "" {
+				parts = append(parts, t)
+			}
+		}
+
+		for _, f := range api.GetSliceFromMap(bm, "fields") {
+			if fm, ok := f.(map[string]interface{}); ok {
+				if t := api.GetStringFromMap(fm, "text"); t != "" {
+					parts = append(parts, t)
+				}
+			}
+		}
+
+		if elements := api.GetSliceFromMap(bm, "elements"); len(elements) > 0 {
+			// Elements are either nested blocks/rich-text sections (recurse)
+			// or leaf nodes carrying their own "text" string.
+			if t := extractBlockText(elements); t != "" {
+				parts = append(parts, t)
+			}
+			for _, el := range elements {
+				if em, ok := el.(map[string]interface{}); ok {
+					if t := api.GetStringFromMap(em, "text"); t != "" {
+						parts = append(parts, t)
+					}
+				}
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func normalizeReactionName(input string) string {
